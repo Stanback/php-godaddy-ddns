@@ -1,15 +1,23 @@
 <?php
-require_once('DNSZoneInterface.class.php');
-
 /*
- * GoDaddy(r) DNS Zone Class
+ * GoDaddy(r) DNS Management Class
  *
  * Author: Brian Stanback <stanback@gmail.com>
  * License: New BSD License
  * Website: http://www.stanback.net/code/godaddy-dyndns.html
- * Version: 0.0.6-experimental
- * Last Updated: 4/17/2012
+ * Version: 0.0.5
+ * Last Updated: 4/16/2012
  * Requires: PHP 5.3+, cURL
+ *
+ * This class can be integrated into your application or it can be
+ * launched in DDNS API mode to allow for DNS updates by compliant clients.
+ * If you are hosting this script remotely, an SSL-enabled server is
+ * recommended so that your username and password are encrypted.
+ *
+ * The class supports offline mode, external IP detection, and all TLDs.
+ * Second-level domains (co.uk, com.au, etc.) may require modification to
+ * the script. The parsing routines contained herein will likely require
+ * changes over time until GoDaddy(r) releases an API.
  *
  * This script was written as a proof-of-concept and is completely unsupported by its
  * author and unaffiliated with GoDaddy(r) and GoDaddy(r) partners or subsidiaries.
@@ -42,11 +50,18 @@ require_once('DNSZoneInterface.class.php');
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *******************************************************************************/
 
+// Launch the method for accepting DDNS API requests
+GoDaddyDNS::ddns(array(
+    'detect_external_ip' => false,
+));
+
 /**
  * The main class for sending and parsing server requests to the
- * GoDaddy(r) DNS management system.
+ * GoDaddy(r) TotalDNS management system. Eventually this class
+ * could split into multiple classes representing the various
+ * components such as the Service, Account, Zone, and Record(s).
  */
-class GoDaddyDNSZone implements DNSZoneInterface
+class GoDaddyDNS
 {
     /**
      * Class variables
@@ -83,6 +98,74 @@ class GoDaddyDNSZone implements DNSZoneInterface
         }
         if ($this->_config['auto_remove_cookie_file'] && file_exists($this->_config['cookie_file'])) {
             unlink($this->_config['cookie_file']);
+        }
+    }
+
+    /**
+     * Static convienence method which uses this class to implement the DNS
+     * Update API to allow compatible DDNS clients to set GoDaddy DNS records
+     * using HTTP requests.
+     *
+     * See: http://dyn.com/support/developers/api/perform-update/
+     *      http://dyn.com/support/developers/api/return-codes/
+     */
+    public static function ddns($defaults = array()) {
+        // Merge the default request values with those passed into the function argument
+        $defaults = array_merge(array(
+            'username'           => '',
+            'password'           => '',
+            'hostname'           => '',
+            'myip'               => '',
+            'offline'            => false,
+            'offline_ip'         => '127.0.0.1',
+            'detect_external_ip' => false,
+        ), $defaults);
+
+        // Get request values from HTTP data, falling back to the defaults above
+        $username = isset($_SERVER['PHP_AUTH_USER']) ? $_SERVER['PHP_AUTH_USER'] :
+                    (isset($_REQUEST['user']) ? $_REQUEST['user'] : $defaults['username']);
+        $password = isset($_SERVER['PHP_AUTH_PW']) ? $_SERVER['PHP_AUTH_PW'] :
+                    (isset($_REQUEST['pw']) ? $_REQUEST['pw'] : $defaults['password']);
+        $hostname = isset($_REQUEST['hostname']) ? $_REQUEST['hostname'] : $defaults['hostname'];
+        $myip     = isset($_REQUEST['myip']) ? $_REQUEST['myip'] :
+                    (isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : $defaults['myip']);
+        $offline  = isset($_REQUEST['offline']) ? (strtoupper($_REQUEST['offline']) == 'YES') : $defaults['offline'];
+
+        if ($hostname) {
+            if ($username && $password) {
+                // Instantiate the GoDaddyDNS class
+                $dns = new self($defaults);
+
+                if ($dns->authenticate($username, $password, $hostname)) {
+                    if ($offline) {
+                        // Use offline IP
+                        $myip = $defaults['offline_ip'];
+                    } elseif ($defaults['detect_external_ip'] && $dns->isPrivateIp($myip)) {
+                        if (($externalip = $dns->getPublicIp($myip))) {
+                            // Use detected external IP
+                            $myip = $externalip;
+                        }
+                    }
+
+                    // Attempt to update the hostname's A record
+                    if (($result = $dns->setRecord($hostname, $myip, 'A'))) {
+                        echo (($result['last_ip'] == $result['new_ip']) ? 'nochg' : 'good') . ' ' . $result['new_ip'];
+                    } else {
+                        header('HTTP/1.1 500 Internal Server Error');
+                        echo '911';
+                    }
+                } else {
+                    header('HTTP/1.1 403 Forbidden');
+                    echo 'badauth';
+               }
+            } else {
+                header('WWW-Authenticate: Basic realm="Dynamic DNS"');
+                header('HTTP/1.1 401 Unauthorized');
+                echo 'noauth';
+            }
+        } else {
+            header('HTTP/1.1 500 Internal Server Error');
+            echo 'nohost';
         }
     }
 
