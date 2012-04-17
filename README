@@ -1,3 +1,24 @@
+------------------------------------------------------------------------
+
+- Note -
+
+This is the *experimental* branch and currently under development.
+
+The code is not currently finished, so don't expect it to work. The
+interface is incomplete, inconsistent, and hasn't been thought out
+enough just yet, but it should be finalized in the near future.
+
+Here's the direction I'm taking it in:
+
+    I'm abstracting the code to use an interface for modelling a DNS
+    zone which has methods for creating and manipulating host records.
+
+    Multiple concrete classes can implement the interface, allowing
+    for pluggable support of other DNS hosting services such as
+    NameCheap or local BIND zone files.
+
+-----------------------------------------------------------------------
+
 All necessary documentation sould be included in the script.
 
 More details may be included in here in the future. Until then,
