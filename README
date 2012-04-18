@@ -26,7 +26,7 @@ sure the username, password, and hostname are correct, your
 web server's configuration may be to blame.
 
 The HTTP authentication used by this script may not work on web
-hosts that use FastCGI to serve PHP script (e.g. GoDaddy and
+hosts that use FastCGI to serve PHP scripts (e.g. GoDaddy and
 Dreamhost). The fix is to add the following to a file named
 ".htaccess" in the same directory as this script (create the
 file if it doesn't exist already):
@@ -57,7 +57,7 @@ shouldn't need to be very frequent, 14 days is a good
 starting value).
 
 Note: Don't add anything after the hostname= in the URL as DD-WRT
-      will automatically append the value in the host name field.
+      will automatically append the value of the host name field.
 
 -----------------------------------------------------------------------
 
