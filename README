@@ -19,10 +19,50 @@ Here's the direction I'm taking it in:
 
 -----------------------------------------------------------------------
 
-All necessary documentation sould be included in the script.
+Known Issue - HTTP Authorization:
 
-More details may be included in here in the future. Until then,
-please see the project website at:
+If you are getting 401 Uunauthorized or noauth errors and you're
+sure the username, password, and hostname are correct, your
+web server's configuration may be to blame.
 
-http://www.stanback.net/code/godaddy-dyndns.html
+The HTTP authentication used by this script may not work on web
+hosts that use FastCGI to serve PHP script (e.g. GoDaddy and
+Dreamhost). The fix is to add the following to a file named
+".htaccess" in the same directory as this script (create the
+file if it doesn't exist already):
 
+<IfModule mod_rewrite.c>
+     RewriteEngine on
+     RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization},L]
+</IfModule>
+
+-----------------------------------------------------------------------
+
+DD-WRT Configuration:
+
+To use this script with a DD-WRT based router, setup the fields
+with the following values:
+
+    DYNDNS Server:  yourdomain.com
+    User Name:      Your GoDaddy Username or Member ID
+    Password:       Your GoDaddy Password
+    Host Name:      yourdomain.com
+       or
+    Host Name:      subdomain.yourdomain.com
+    URL:            /ddns.php?hostname=
+
+The additional DDNS options field can be kept blank and the
+force update interval can be set to whatever you wish (it
+shouldn't need to be very frequent, 14 days is a good
+starting value).
+
+Note: Don't add anything after the hostname= in the URL as DD-WRT
+      will automatically append the value in the host name field.
+
+-----------------------------------------------------------------------
+
+All other documentation sould be included in the script.
+
+Project website: http://www.stanback.net/code/godaddy-dyndns.html
+
+-----------------------------------------------------------------------
