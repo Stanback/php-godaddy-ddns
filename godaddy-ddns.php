@@ -1,6 +1,6 @@
 <?php
 /*
- * GoDaddy(r) DNS Management Class
+ * GoDaddy® DNS Management Class
  *
  * Author: Brian Stanback <stanback@gmail.com>
  * License: New BSD License
@@ -17,14 +17,14 @@
  * The class supports offline mode, external IP detection, and all TLDs.
  * Second-level domains (co.uk, com.au, etc.) may require modification to
  * the script. The parsing routines contained herein will likely require
- * changes over time until GoDaddy(r) releases an API.
+ * changes over time until GoDaddy® releases an API.
  *
  * This script was written as a proof-of-concept and is completely unsupported by its
- * author and unaffiliated with GoDaddy(r) and GoDaddy(r) partners or subsidiaries.
+ * author and unaffiliated with GoDaddy® and GoDaddy® partners or subsidiaries.
  */
 
 /********************************************************************************
- * Copyright (c) 2010-12, Brian Stanback <stanback@gmail.com>
+ * Copyright © 2010-12, Brian Stanback <stanback@gmail.com>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -57,7 +57,7 @@ GoDaddyDNS::ddns(array(
 
 /**
  * The main class for sending and parsing server requests to the
- * GoDaddy(r) TotalDNS management system. Eventually this class
+ * GoDaddy® TotalDNS management system. Eventually this class
  * could split into multiple classes representing the various
  * components such as the Service, Account, Zone, and Record(s).
  */
@@ -77,10 +77,10 @@ class GoDaddyDNS
         // Apply default configuration settings
         $this->_config = array_merge(array(
             'cookie_file'                 => tempnam(sys_get_temp_dir(), 'Curl'),
-            'auto_remove_cookie_file'     => true,
+            'auto_remove_cookie_file'     => false,
             'auto_logout'                 => false,
             'godaddy_dns_default_url'     => 'https://dns.godaddy.com/default.aspx',
-            'godaddy_dns_zonefile_url'    => 'https://dns.godaddy.com/ZoneFile.aspx?zoneType=0&zone=',
+            'godaddy_dns_zonefile_url'    => 'https://dns.godaddy.com/ZoneFile.aspx?zoneType=0&sa=&zone=',
             'godaddy_dns_zonefile_ws_url' => 'https://dns.godaddy.com/ZoneFile_WS.asmx',
             'hostip_api_url'              => 'http://api.hostip.info/',
         ), $config);
@@ -130,6 +130,8 @@ class GoDaddyDNS
         $myip     = isset($_REQUEST['myip']) ? $_REQUEST['myip'] :
                     (isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : $defaults['myip']);
         $offline  = isset($_REQUEST['offline']) ? (strtoupper($_REQUEST['offline']) == 'YES') : $defaults['offline'];
+
+
 
         if ($hostname) {
             if ($username && $password) {
@@ -183,10 +185,12 @@ class GoDaddyDNS
         } else {
             $loginUrl = $this->_config['godaddy_dns_default_url'];
         }
+
         $this->_lastResponse = $this->_fetchURL($loginUrl);
         if (!$this->isLoggedIn($username)) {
             // User is not already logged in, build and submit a login request
             $postUrl = curl_getinfo($this->_curlHandle, CURLINFO_EFFECTIVE_URL);
+            
             $post = array(
                 'Login$userEntryPanel2$LoginImageButton.x' => 0,
                 'Login$userEntryPanel2$LoginImageButton.y' => 0,
@@ -197,7 +201,8 @@ class GoDaddyDNS
                 '__VIEWSTATE' => $this->_getField('__VIEWSTATE'),
             );
             $this->_lastResponse = $this->_fetchURL($postUrl, $post);
-            if (!$this->isLoggedIn($username)) {
+
+            if (!$this->isLoggedIn($username, $this->_lastResponse)) {
                 // Invalid username/password or unknown response received
                 return false;
             }
@@ -208,9 +213,11 @@ class GoDaddyDNS
     /**
      * Check to see if the expected user is logged in.
      */
+     
+//     
     public function isLoggedIn($username) {
-        if (preg_match('#Welcome:[^<]+<span id="ctl00_lblUser" title="(.*?)\(\#([0-9]+)\)"[^>]*>([^<]+)</span>#', $this->_lastResponse, $match)) {
-            if (strtolower($match[3]) == strtolower($username) || $match[2] == $username) {
+        if (preg_match('#Welcome:&nbsp;<span id="ctl00_lblUser" .*?>(.*)</span>#', $this->_lastResponse, $match)) {
+            if (strtolower($match[1]) == strtolower($username) || $match[2] == $username) {
                 return true;
             } else {
                 // An unexpected user was logged in
