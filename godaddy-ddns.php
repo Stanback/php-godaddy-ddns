@@ -5,8 +5,8 @@
  * Author: Brian Stanback <stanback@gmail.com>
  * License: New BSD License
  * Website: http://www.stanback.net/code/godaddy-dyndns.html
- * Version: 0.0.5
- * Last Updated: 4/16/2012
+ * Version: 0.0.6
+ * Last Updated: 6/19/2012
  * Requires: PHP 5.3+, cURL
  *
  * This class can be integrated into your application or it can be
