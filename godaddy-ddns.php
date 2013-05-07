@@ -215,7 +215,7 @@ class GoDaddyDNS
      */
     public function isLoggedIn($username) {
         if (preg_match('#Welcome:&nbsp;<span id="ctl00_lblUser" .*?\>(.*)</span>#', $this->_lastResponse, $match)) {
-            if (strtolower($match[1]) == strtolower($username) || $match[2] == $username) {
+            if (substr(strtolower($match[1]),0,7) == substr(strtolower($username),0,7) || $match[2] == $username) {
                 return true;
             } else {
                 // An unexpected user was logged in
