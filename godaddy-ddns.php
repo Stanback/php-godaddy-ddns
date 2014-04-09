@@ -50,10 +50,6 @@
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *******************************************************************************/
 
-// Launch the method for accepting DDNS API requests
-GoDaddyDNS::ddns(array(
-    'detect_external_ip' => false,
-));
 
 /**
  * The main class for sending and parsing server requests to the
@@ -69,6 +65,8 @@ class GoDaddyDNS
     private $_config;
     private $_curlHandle;
     private $_lastResponse;
+    public $_lastError;
+    public $_lastSuccess;
 
     /**
      * Initialize the configuration array with configuration defaults.
@@ -78,11 +76,13 @@ class GoDaddyDNS
         $this->_config = array_merge(array(
             'cookie_file'                 => tempnam(sys_get_temp_dir(), 'Curl'),
             'auto_remove_cookie_file'     => true,
-            'auto_logout'                 => false,
+            'auto_logout'                 => true,
             'godaddy_dns_default_url'     => 'https://dns.godaddy.com/default.aspx',
             'godaddy_dns_zonefile_url'    => 'https://dns.godaddy.com/ZoneFile.aspx?zoneType=0&sa=&zone=',
             'godaddy_dns_zonefile_ws_url' => 'https://dns.godaddy.com/ZoneFile_WS.asmx',
             'hostip_api_url'              => 'http://api.hostip.info/',
+            'offline'                     => false,
+            'detect_external_ip'          => false,
         ), $config);
     }
 
@@ -122,54 +122,62 @@ class GoDaddyDNS
         ), $defaults);
 
         // Get request values from HTTP data, falling back to the defaults above
-        $username = isset($_SERVER['PHP_AUTH_USER']) ? $_SERVER['PHP_AUTH_USER'] :
+        $defaults['username'] = isset($_SERVER['PHP_AUTH_USER']) ? $_SERVER['PHP_AUTH_USER'] :
                     (isset($_REQUEST['user']) ? $_REQUEST['user'] : $defaults['username']);
-        $password = isset($_SERVER['PHP_AUTH_PW']) ? $_SERVER['PHP_AUTH_PW'] :
+        $defaults['password'] = isset($_SERVER['PHP_AUTH_PW']) ? $_SERVER['PHP_AUTH_PW'] :
                     (isset($_REQUEST['pw']) ? $_REQUEST['pw'] : $defaults['password']);
-        $hostname = isset($_REQUEST['hostname']) ? $_REQUEST['hostname'] : $defaults['hostname'];
-        $myip     = isset($_REQUEST['myip']) ? $_REQUEST['myip'] :
+        $defaults['hostname'] = isset($_REQUEST['hostname']) ? $_REQUEST['hostname'] : $defaults['hostname'];
+        $defaults['myip']     = isset($_REQUEST['myip']) ? $_REQUEST['myip'] :
                     (isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : $defaults['myip']);
-        $offline  = isset($_REQUEST['offline']) ? (strtoupper($_REQUEST['offline']) == 'YES') : $defaults['offline'];
+        $defaults['offline']  = isset($_REQUEST['offline']) ? (strtoupper($_REQUEST['offline']) == 'YES') : $defaults['offline'];
 
 
-
-        if ($hostname) {
-            if ($username && $password) {
-                // Instantiate the GoDaddyDNS class
-                $dns = new self($defaults);
-
-                if ($dns->authenticate($username, $password, $hostname)) {
-                    if ($offline) {
-                        // Use offline IP
-                        $myip = $defaults['offline_ip'];
-                    } elseif ($defaults['detect_external_ip'] && $dns->isPrivateIp($myip)) {
-                        if (($externalip = $dns->getPublicIp($myip))) {
-                            // Use detected external IP
-                            $myip = $externalip;
-                        }
-                    }
-
-                    // Attempt to update the hostname's A record
-                    if (($result = $dns->setRecord($hostname, $myip, 'A'))) {
-                        echo (($result['last_ip'] == $result['new_ip']) ? 'nochg' : 'good') . ' ' . $result['new_ip'];
-                    } else {
-                        header('HTTP/1.1 500 Internal Server Error');
-                        echo '911';
-                    }
-                } else {
-                    header('HTTP/1.1 403 Forbidden');
-                    echo 'badauth';
-               }
-            } else {
+        $dns = new self($defaults);
+        if(!$dns->updateRecord()) {
+            if($dns->_lastError == "noauth") {
                 header('WWW-Authenticate: Basic realm="Dynamic DNS"');
                 header('HTTP/1.1 401 Unauthorized');
-                echo 'noauth';
+            } elseif($dns->_lastError == "badauth") {
+                header('WWW-Authenticate: Basic realm="Bad Auth"');
+            } else  {//($dns->_lastError == "911" || $dns->_lastError == "nohost") {
+                header('HTTP/1.1 500 Internal Server Error');
             }
+            echo $dns->_lastError;
         } else {
-            header('HTTP/1.1 500 Internal Server Error');
-            echo 'nohost';
+          echo (($dns->_lastSuccess['last_ip'] == $dns->_lastSuccess['new_ip']) ? 'nochg' : 'good') . ' ' . $dns->_lastSuccess['new_ip'];
         }
     }
+
+
+    public function updateRecord() {
+        $this->_lastError = null;
+        if ($this->_config['hostname']) {
+            if ($this->_config['username'] && $this->_config['password']) {
+                if ($this->authenticate()) {
+                    if ($this->_config['offline']) {
+                        $this->_config['myip'] = $this->_config['offline_ip'];
+                    } elseif ($this->_config['detect_external_ip']) {
+                        $this->_config['myip'] = $this->getPublicIp();
+                    }
+                    // Attempt to update the hostname's A record
+                    if (($result = $this->setRecord())) {
+                        $this->_lastSuccess = $result;
+                        return true;
+                    } else {
+                        $this->_lastError = '911';
+                    }
+                } else {
+                    $this->_lastError = 'badauth';
+               }
+            } else {
+                $this->_lastError = 'noauth';
+            }
+        } else {
+            $this->_lastError = 'nohost';
+        }
+        return false;
+    }
+
 
     /**
      * Login to the user's account, returning an error if the credentials are
@@ -178,31 +186,31 @@ class GoDaddyDNS
      * A optional FQDN or TLD can be specified to log the user directly into
      * a specific zone record (eliminates an additional page request).
      */
-    public function authenticate($username, $password, $hostname = null) {
-        if ($hostname) {
-            list($host, $domain) = $this->_splitHostname($hostname);
+    public function authenticate() {
+        if ($this->_config['hostname']) {
+            list($host, $domain) = $this->_splitHostname($this->_config['hostname']);
             $loginUrl = $this->_config['godaddy_dns_zonefile_url'] . $domain;
         } else {
             $loginUrl = $this->_config['godaddy_dns_default_url'];
         }
 
         $this->_lastResponse = $this->_fetchURL($loginUrl);
-        if (!$this->isLoggedIn($username)) {
+        if (!$this->isLoggedIn($this->_config['username'])) {
             // User is not already logged in, build and submit a login request
             $postUrl = curl_getinfo($this->_curlHandle, CURLINFO_EFFECTIVE_URL);
 
             $post = array(
                 'Login$userEntryPanel2$LoginImageButton.x' => 0,
                 'Login$userEntryPanel2$LoginImageButton.y' => 0,
-                'Login$userEntryPanel2$UsernameTextBox' => $username,
-                'Login$userEntryPanel2$PasswordTextBox' => $password,
+                'Login$userEntryPanel2$UsernameTextBox' => $this->_config['username'],
+                'Login$userEntryPanel2$PasswordTextBox' => $this->_config['password'],
                 '__EVENTARGUMENT' => $this->_getField('__EVENTARGUMENT'),
                 '__EVENTTARGET' => $this->_getField('__EVENTTARGET'),
                 '__VIEWSTATE' => $this->_getField('__VIEWSTATE'),
             );
             $this->_lastResponse = $this->_fetchURL($postUrl, $post);
 
-            if (!$this->isLoggedIn($username, $this->_lastResponse)) {
+            if (!$this->isLoggedIn()) {
                 // Invalid username/password or unknown response received
                 return false;
             }
@@ -213,9 +221,9 @@ class GoDaddyDNS
     /**
      * Check to see if the expected user is logged in.
      */
-    public function isLoggedIn($username) {
+    public function isLoggedIn() {
         if (preg_match('#Welcome:&nbsp;<span id="ctl00_lblUser" .*?\>(.*)</span>#', $this->_lastResponse, $match)) {
-            if (substr(strtolower($match[1]),0,7) == substr(strtolower($username),0,7) || $match[2] == $username) {
+            if (substr(strtolower($match[1]),0,7) == substr(strtolower($this->_config['username']),0,7) || $match[2] == $this->_config['username']) {
                 return true;
             } else {
                 // An unexpected user was logged in
@@ -248,17 +256,17 @@ class GoDaddyDNS
      *        (such as the TTL), or submitting batch edit requests (instead
      *        of handling them one at a time) could be added in the future.
      */
-    public function setRecord($hostname, $data, $type = 'A') {
-        list($host, $domain) = $this->_splitHostname($hostname);
+    public function setRecord($type = 'A') {
+        list($host, $domain) = $this->_splitHostname($this->_config['hostname']);
         switch (strtoupper($type)) {
             case 'A':
                 if (!($record = $this->_findRecord($host, $domain, $type))) {
                     // Host record not found
                     return false;
-                } elseif ($record['data'] != $data) {
+                } elseif ($record['data'] != $this->_config['myip']) {
                     // A record is out of date, build the query for updating it
                     $post = array(
-                        'sInput' => '<PARAMS><PARAM name="type" value="arecord" /><PARAM name="fieldName" value="data" /><PARAM name="fieldValue" value="' . $data . '" /><PARAM name="lstIndex" value="' . $record['index'] . '" /></PARAMS>',
+                        'sInput' => '<PARAMS><PARAM name="type" value="arecord" /><PARAM name="fieldName" value="data" /><PARAM name="fieldValue" value="' . $this->_config['myip'] . '" /><PARAM name="lstIndex" value="' . $record['index'] . '" /></PARAMS>',
                     );
                     $calloutResponse = $this->_fetchURL($this->_config['godaddy_dns_zonefile_ws_url'] . '/EditRecordField', http_build_query($post, '', '&'));
                     if (strpos($calloutResponse, 'SUCCESS') === false) {
@@ -278,7 +286,7 @@ class GoDaddyDNS
                 // The update succeeded or no changes were needed
                 return array(
                     'last_ip' => $record['data'],
-                    'new_ip' => $data,
+                    'new_ip' => $this->_config['myip'],
                 );
             case 'CNAME':
             case 'MX':
@@ -327,7 +335,7 @@ class GoDaddyDNS
     /**
      * Checks to see whether an IP address is private (non-routable) or public.
      */
-    public function isPrivateIp($ip) {
+    public static function isPrivateIp($ip) {
         return (strpos($ip, '10.') === 0 ||
                 strpos($ip, '127.') === 0 ||
                 strpos($ip, '169.254.') === 0 ||
@@ -338,7 +346,7 @@ class GoDaddyDNS
     /**
      * Determine the host and domain name components given a hostname - could add some sanity testing.
      */
-    private function _splitHostname($hostname) {
+    private static function _splitHostname($hostname) {
         $len = strlen($hostname);
         $tldPos = strrpos($hostname, '.', 0);
         $sldPos = strrpos($hostname, '.', ($tldPos-$len-1));
@@ -425,3 +433,29 @@ class GoDaddyDNS
         return false;
     }
 }
+
+if(php_sapi_name() == "cli") {
+    if (count($argv) < 4) {
+        echo "Usage:\n ".$argv[0]." <username> <password> <hostname>\n";
+        exit(1);
+    }
+    print_r($argv);
+
+    $ddns = new GoDaddyDNS(array(
+    'username' => $argv[1],
+    'password' => $argv[2],
+    'hostname' => $argv[3],
+    'detect_external_ip' => true,));
+
+    if($ddns->updateRecord()) {
+        echo "Updated Record\n";
+        exit(0);
+    } else {
+        echo "Problem updating Record \"".$ddns->_lastError."\"\n";
+        exit(1);
+    }
+} else {
+    GoDaddyDNS::ddns();
+}
+
+?>
