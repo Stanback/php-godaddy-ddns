@@ -149,8 +149,13 @@ class GoDaddyDNS
     }
 
 
+    /**
+    * This is the normal process we run through to update a DNS entry, check/parse config, get any
+    * IP information then update the record.
+    * True is returned if we can update, false if we cant.  _lastError and _lastSuccess where added to get 
+    * any needed info from after we try.
+    */
     public function updateRecord() {
-        $this->_lastError = null;
         if ($this->_config['hostname']) {
             if ($this->_config['username'] && $this->_config['password']) {
                 if ($this->authenticate()) {
