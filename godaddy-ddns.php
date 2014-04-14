@@ -444,7 +444,6 @@ if(php_sapi_name() == "cli") {
         echo "Usage:\n ".$argv[0]." <username> <password> <hostname>\n";
         exit(1);
     }
-    print_r($argv);
 
     $ddns = new GoDaddyDNS(array(
     'username' => $argv[1],
